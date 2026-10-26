@@ -63,38 +63,13 @@ int uart_buffer_empty(void)
 unsigned char uart_read(void)
 {
 	/* LAB9_BEGIN uart_read */
-	for (;;) {
-		irq_state_t state = io_irq_save();
-		if (uart.count) {
-			unsigned char c = uart.bytes[uart.head];
-			uart.head = (uart.head + 1) % RX_CAPACITY;
-			uart.count--;
-			io_irq_restore(state);
-			return c;
-		}
-		io_wait_no_sched(&uart.available);
-		io_irq_restore(state);
-		sched();
-	}
+	panic("TODO(LAB9): uart_read");
 	/* LAB9_END uart_read */
 }
 
 void uart_handle_irq(void)
 {
 	/* LAB9_BEGIN uart_handle_irq */
-	uint received = 0;
-	irq_state_t state = io_irq_save();
-	int c;
-	while ((c = uart_raw_read()) >= 0) {
-		if (uart.count == RX_CAPACITY)
-			panic("UART receive buffer exhausted");
-		uart.bytes[uart.tail] = c;
-		uart.tail = (uart.tail + 1) % RX_CAPACITY;
-		uart.count++;
-		received++;
-	}
-	io_irq_restore(state);
-	if (received)
-		io_signal(&uart.available);
+	panic("TODO(LAB9): uart_handle_irq");
 	/* LAB9_END uart_handle_irq */
 }

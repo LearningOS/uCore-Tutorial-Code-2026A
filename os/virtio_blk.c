@@ -88,53 +88,20 @@ block_sync(uint64 block_id, void *buf, int write)
 void virtio_block_read_block(uint64 block_id, unsigned char *buf)
 {
 	/* LAB9_BEGIN virtio_block_read_block */
-	irq_state_t irq = io_irq_save();
-	int nonblocking = dev_non_blocking_access;
-	io_irq_restore(irq);
-	if (!nonblocking) {
-		block_sync(block_id, buf, 0);
-		return;
-	}
-	struct blk_response resp = { .status = 0xff };
-	irq = io_irq_save();
-	int token = block_submit(block_id, buf, &resp, 0);
-	io_wait_no_sched(&block.condvars[token]);
-	io_irq_restore(irq);
-	sched();
-	if (resp.status != 0)
-		panic("Error when reading VirtIOBlk");
+	panic("TODO(LAB9): virtio_block_read_block");
 	/* LAB9_END virtio_block_read_block */
 }
 
 void virtio_block_write_block(uint64 block_id, const unsigned char *buf)
 {
 	/* LAB9_BEGIN virtio_block_write_block */
-	irq_state_t irq = io_irq_save();
-	int nonblocking = dev_non_blocking_access;
-	io_irq_restore(irq);
-	if (!nonblocking) {
-		block_sync(block_id, (void *)buf, 1);
-		return;
-	}
-	struct blk_response resp = { .status = 0xff };
-	irq = io_irq_save();
-	int token = block_submit(block_id, (void *)buf, &resp, 1);
-	io_wait_no_sched(&block.condvars[token]);
-	io_irq_restore(irq);
-	sched();
-	if (resp.status != 0)
-		panic("Error when writing VirtIOBlk");
+	panic("TODO(LAB9): virtio_block_write_block");
 	/* LAB9_END virtio_block_write_block */
 }
 
 void virtio_block_handle_irq(void)
 {
 	/* LAB9_BEGIN virtio_block_handle_irq */
-	irq_state_t irq = io_irq_save();
-	vmmio_ack(&block.dev);
-	int token;
-	while ((token = vq_pop_used(&block.queue)) >= 0)
-		io_signal(&block.condvars[token]);
-	io_irq_restore(irq);
+	panic("TODO(LAB9): virtio_block_handle_irq");
 	/* LAB9_END virtio_block_handle_irq */
 }
