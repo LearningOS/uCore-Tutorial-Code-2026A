@@ -15,6 +15,15 @@ from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 
+# Native hooks carry a private loader and profile; source hooks use the bundle.
+if not (Path(__file__).resolve().parent / 'course_profile.py').is_file():
+    sys.path.insert(0, str(Path(__file__).resolve().parents[3] / 'scripts'))
+import course_profile
+
+PROFILE = course_profile.load_profile(Path(__file__).resolve().parent)
+HOOKS_DIRECTORY = PROFILE['project'] + '-hooks'
+
+
 from archive_session import (
     ARCHIVE_DIR_NAME, find_project_root, read_archive_config, archive_session_id,
     prepare_archive_directory, existing_archive, session_archive_path,
@@ -24,11 +33,15 @@ from archive_storage import (
     put_entry, read_entries, write_jsonl,
 )
 
+def install_profile(runtime):
+    atomic_write(runtime / 'course_profile.py', Path(course_profile.__file__).read_text(encoding='utf-8'))
+    atomic_write(runtime / 'course-profile.json', json.dumps(PROFILE, ensure_ascii=False, indent=2) + '\n')
+
 
 AGENT = "vscode-copilot"
 EVENTS = ("SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PreCompact", "Stop")
-COMMAND = 'python3 ".vscode/ucore-hooks/copilot_hook.py"'
-HOOK_LOCATION = ".github/hooks/ucore-session-archive.json"
+COMMAND = f'python3 ".vscode/{HOOKS_DIRECTORY}/copilot_hook.py"'
+HOOK_LOCATION = ".github/hooks/" + PROFILE["plugin_name"] + ".json"
 
 
 class TranscriptError(ValueError):
@@ -36,7 +49,7 @@ class TranscriptError(ValueError):
 
 
 def warn(message):
-    print(f"[Course VS Code Copilot] {message}", file=sys.stderr)
+    print(f"[{PROFILE['display_name']} VS Code Copilot] {message}", file=sys.stderr)
 
 
 def timestamp_ns(value):
@@ -412,7 +425,7 @@ def hook_config(existing=None):
 
 def install_hooks(root):
     directory = root / ".vscode"
-    runtime = directory / "ucore-hooks"
+    runtime = directory / HOOKS_DIRECTORY
     settings = root / ".ai/ide/course.code-workspace"
     hooks = root / HOOK_LOCATION
     for path in (directory, runtime, root / ".ai", settings.parent, settings,
@@ -430,6 +443,7 @@ def install_hooks(root):
     settings.parent.mkdir(parents=True, exist_ok=True)
     hooks.parent.mkdir(parents=True, exist_ok=True)
     private_directory(runtime)
+    install_profile(runtime)
     for name in ("archive_session.py", "archive_storage.py", "copilot_hook.py"):
         atomic_write(runtime / name, (Path(__file__).resolve().parent / name).read_text(encoding="utf-8"))
     atomic_write(hooks, json.dumps(config, ensure_ascii=False, indent=2) + "\n")

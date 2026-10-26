@@ -5,6 +5,8 @@
   "marketplace_name": "ucore-tutorial-code",
   "compatibility": [
     "bundled main entry and persistent runtime",
-    "existing plugin identity"
+    "existing plugin identity",
+    "course-profile.json",
+    "Codex final outcome handling"
   ]
 }

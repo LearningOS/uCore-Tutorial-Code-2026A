@@ -20,4 +20,4 @@ if ! python3 -c 'import sys; raise SystemExit(sys.version_info < (3, 9))'; then
     setup_error 'Python 版本过低，需要 Python 3.9 或更高版本。'
     exit 1
 fi
-exec python3 "${SCRIPT_DIR}/../plugins/ucore-session-archive/scripts/setup_agents.py" "$@"
+exec python3 "${SCRIPT_DIR}/course_profile.py" "$@"

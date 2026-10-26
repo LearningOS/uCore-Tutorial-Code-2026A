@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "project": "ucore",
+  "display_name": "uCore",
+  "plugin_name": "ucore-session-archive",
+  "marketplace_name": "ucore-tutorial-code",
+  "bootstrap_branch": "main",
+  "lab_branches": {
+    "ch1-api": [
+      "os/main.c",
+      "Makefile",
+      "bootloader",
+      "lab.json",
+      "ucore-ch1-api.md"
+    ],
+    "ch2-api": [
+      "os/main.c",
+      "Makefile",
+      "bootloader",
+      "lab.json",
+      "ucore-ch2-api.md"
+    ],
+    "ch3-api": [
+      "os/main.c",
+      "Makefile",
+      "bootloader",
+      "lab.json",
+      "ucore-ch3-api.md"
+    ],
+    "ch4-api": [
+      "os/main.c",
+      "Makefile",
+      "bootloader",
+      "lab.json",
+      "ucore-ch4-api.md"
+    ],
+    "ch5-api": [
+      "os/main.c",
+      "Makefile",
+      "bootloader",
+      "lab.json",
+      "ucore-ch5-api.md"
+    ],
+    "ch6-api": [
+      "os/main.c",
+      "Makefile",
+      "bootloader",
+      "lab.json",
+      "ucore-ch6-api.md"
+    ],
+    "ch7-api": [
+      "os/main.c",
+      "Makefile",
+      "bootloader",
+      "lab.json",
+      "ucore-ch7-api.md"
+    ],
+    "ch8-api": [
+      "os/main.c",
+      "Makefile",
+      "bootloader",
+      "lab.json",
+      "ucore-ch8-api.md"
+    ]
+  }
+}

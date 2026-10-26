@@ -8,6 +8,15 @@ from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 
+# Native hooks carry a private loader and profile; source hooks use the bundle.
+if not (Path(__file__).resolve().parent / 'course_profile.py').is_file():
+    sys.path.insert(0, str(Path(__file__).resolve().parents[3] / 'scripts'))
+import course_profile
+
+PROFILE = course_profile.load_profile(Path(__file__).resolve().parent)
+HOOKS_DIRECTORY = PROFILE['project'] + '-hooks'
+
+
 from archive_session import (
     ARCHIVE_DIR_NAME, find_project_root, read_archive_config, archive_session_id,
     prepare_archive_directory, existing_archive, session_archive_path,
@@ -17,16 +26,20 @@ from archive_storage import (
     put_entry, read_entries, text_event_id, write_jsonl,
 )
 
+def install_profile(runtime):
+    atomic_write(runtime / 'course_profile.py', Path(course_profile.__file__).read_text(encoding='utf-8'))
+    atomic_write(runtime / 'course-profile.json', json.dumps(PROFILE, ensure_ascii=False, indent=2) + '\n')
+
 
 EVENTS = (
     "beforeSubmitPrompt", "afterAgentResponse", "afterAgentThought",
     "preToolUse", "postToolUse", "postToolUseFailure", "stop",
 )
-COMMAND = 'python3 ".cursor/ucore-hooks/cursor_hook.py"'
+COMMAND = f'python3 ".cursor/{HOOKS_DIRECTORY}/cursor_hook.py"'
 
 
 def warn(message):
-    print(f"[Course Cursor] {message}", file=sys.stderr)
+    print(f"[{PROFILE['display_name']} Cursor] {message}", file=sys.stderr)
 
 
 def handle(payload, project_root=None):
@@ -177,8 +190,9 @@ def install_hooks(root):
     path.parent.mkdir(parents=True, exist_ok=True)
     # Keep the native hook AND its runtime in the ignored project directory.
     # A checkout of a lab branch must not remove the installed Cursor integration.
-    runtime = path.parent / "ucore-hooks"
+    runtime = path.parent / HOOKS_DIRECTORY
     private_directory(runtime)
+    install_profile(runtime)
     for filename in ("archive_session.py", "archive_storage.py", "cursor_hook.py"):
         source = Path(__file__).resolve().parent / filename
         atomic_write(runtime / filename, source.read_text(encoding="utf-8"))

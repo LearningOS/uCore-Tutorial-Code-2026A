@@ -7,6 +7,12 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+if not (Path(__file__).resolve().parent / "course_profile.py").is_file():
+    sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "scripts"))
+import course_profile
+PROFILE = course_profile.load_profile(Path(__file__).resolve().parent)
+HOOKS_DIRECTORY = PROFILE["project"] + "-hooks"
+
 from archive_session import (
     archive_session_id, find_project_root, prepare_archive_directory,
     read_archive_config, sanitize_content, session_archive_path, session_header,
@@ -245,18 +251,20 @@ def handle(payload, project_root):
 def install_hooks(root):
     root = Path(root).resolve()
     config = root / ".opencode"
-    paths = [config, config / "plugins", config / "ucore-hooks"]
+    paths = [config, config / "plugins", config / HOOKS_DIRECTORY]
     sources = Path(__file__).resolve().parent
-    files = [(sources / name, config / "ucore-hooks" / name)
+    files = [(sources / name, config / HOOKS_DIRECTORY / name)
              for name in ("archive_session.py", "archive_storage.py", "opencode_hook.py")]
-    files.append((sources / "opencode_plugin.js", config / "plugins/ucore-session-archive.js"))
+    files.append((sources / "opencode_plugin.js", config / "plugins" / (PROFILE["plugin_name"] + ".js")))
     if any(path.is_symlink() for path in [*paths, *(destination for _, destination in files)]):
         raise ValueError("OpenCode project configuration must not be a symlink")
     for path in paths[:2]:
         path.mkdir(mode=0o700, exist_ok=True)
-    private_directory(config / "ucore-hooks")
+    private_directory(config / HOOKS_DIRECTORY)
+    atomic_write(config / HOOKS_DIRECTORY / "course_profile.py", Path(course_profile.__file__).read_text(encoding="utf-8"))
+    atomic_write(config / HOOKS_DIRECTORY / "course-profile.json", json.dumps(PROFILE, ensure_ascii=False, indent=2) + "\n")
     for source, destination in files:
-        atomic_write(destination, source.read_text(encoding="utf-8"))
+        atomic_write(destination, source.read_text(encoding="utf-8").replace("ucore-hooks", HOOKS_DIRECTORY).replace("ucore-session-archive", PROFILE["plugin_name"]))
 
 
 def main():

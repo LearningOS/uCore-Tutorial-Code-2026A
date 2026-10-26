@@ -15,6 +15,7 @@ from pathlib import Path
 BUNDLE_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(BUNDLE_ROOT / 'scripts'))
 from course_runtime import RUNTIME_PATH, install_runtime, resolve_project
+from course_profile import load_profile
 
 from archive_session import CONFIG_RELATIVE_PATHS, SUPPORTED_MODES
 from archive_storage import atomic_write
@@ -23,8 +24,9 @@ from cursor_hook import install_hooks as install_cursor_hooks
 from opencode_hook import install_hooks as install_opencode_hooks
 
 
-PLUGIN_NAME = "ucore-session-archive"
-MARKETPLACE_NAME = "ucore-tutorial-code"
+PROFILE = load_profile(BUNDLE_ROOT)
+PLUGIN_NAME = PROFILE["plugin_name"]
+MARKETPLACE_NAME = PROFILE["marketplace_name"]
 PLUGIN_ID = f"{PLUGIN_NAME}@{MARKETPLACE_NAME}"
 AGENTS = {"codex": "codex", "claude": "claude-code", "cursor": "cursor", "vscode": "vscode-copilot", "opencode": "opencode"}
 LABELS = {"codex": "Codex", "claude": "Claude Code", "cursor": "Cursor", "vscode": "VS Code Copilot", "opencode": "OpenCode"}
@@ -46,7 +48,7 @@ class Progress:
         self.completed = []
 
     def header(self, root, target):
-        print(colored("\nCourse Tool · AI 过程记录配置", "1;36"), flush=True)
+        print(colored("\n" + PROFILE["display_name"] + " · AI 过程记录配置", "1;36"), flush=True)
         self.info(f"项目：{root}")
         self.info(f"目标：{target}")
 

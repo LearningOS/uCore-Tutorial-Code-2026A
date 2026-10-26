@@ -1,7 +1,7 @@
 # 实验过程记录工具功能说明
 
 本功能于 2026-09-11 从 `rCore-Tutorial-Code` 的 `main` 分支最近两个提交移植，
-适配 uCore 的 C 实验代码与 `ch1`–`ch8` 章节分支：
+适配 uCore 的 C 实验代码与 course profile 指定的学生实验分支：
 
 | 源提交 | 迁移能力 |
 | --- | --- |
@@ -32,10 +32,10 @@ Cursor / Copilot 的运行脚本使用 `ucore-hooks` 目录，避免与 rCore �
 | 归档模式 | messages、tool-calls、full，按 Agent 独立配置 |
 | JSONL 文件 | `.ai/agent-sessions/<agent>/<UTC日期时间>_<session-id>.jsonl`，同一会话持续更新同一文件 |
 | 提交快照 | 预提交 Hook 导出并暂存增量事件，按当前暂存区的事件 ID 去重 |
-| 随代码提交 | main/ch1–ch8 放行 `.ai/agent-sessions/`、`.ai/events/` 和 `.ai/submissions/`，普通 `git add` 即可暂存 |
+| 随代码提交 | main 和学生实验分支放行 `.ai/agent-sessions/`、`.ai/events/` 和 `.ai/submissions/`，普通 `git add` 即可暂存 |
 | 开关与恢复 | 保留已有日志和模式；课程配置重载后生效，归档配置每次 hook 读取 |
 | 容器 | main 提供 Dev Container 初始化与连接后的插件安装入口 |
-| 跨分支使用 | 任一实验分支安装一次，切换 ch1–ch8 后继续记录 |
+| 跨分支使用 | 任一实验分支安装一次，切换 profile 指定的实验分支后继续记录 |
 
 ## 任一实验分支安装，跨分支使用
 
@@ -61,8 +61,8 @@ bash -n scripts/setup-agent-plugins.sh
 ```
 
 归档回归测试覆盖四种 Agent、模式过滤、重复事件、完整 JSONL、失败恢复和配置保留。
-跨分支测试在隔离仓库安装工具后切换 main/ch1–ch8，验证运行文件、Git 入口、课程事件、
-四种 Agent 的归档、普通 `git add .` 暂存三类记录和真实提交 Hook；同时检查安装器不会创建或改写章节的编辑器设置，
+跨分支测试在隔离仓库安装工具后切换 main 和 profile 指定的实验分支，验证运行文件、Git 入口、课程事件、
+四种 Agent 的归档、普通 \`git add .\` 暂存三类记录和真实提交 Hook；同时检查安装器不会创建或改写章节的编辑器设置，
 并保留用户已有的 C/C++ 设置。
 VS Code 事件通过安装包中的课程适配器与编辑器接口替身验证。
 Agent CLI 的安装、课程 Codex 调用和归档事件通过模拟客户端与合成会话验证。

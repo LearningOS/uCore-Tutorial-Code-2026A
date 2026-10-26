@@ -43,6 +43,8 @@ def main():
         emit(dict(type='ai_prompt', prompt=prompt_text))
         code = 1
         end_reason = 'codex_process_exit'
+        saw_error = False
+        turn_failed = False
         process = None
         seen = set()
         try:
@@ -63,8 +65,12 @@ def main():
                     failure = message.get('error', message.get('message', 'Codex turn failed'))
                     if isinstance(failure, dict):
                         failure = failure.get('message', 'Codex turn failed')
-                    end_reason = 'codex_turn_failed'
+                    saw_error = True
+                    if message.get('type') == 'turn.failed':
+                        turn_failed = True
                     print('Codex error: ' + redact(str(failure)), file=sys.stderr, flush=True)
+                if message.get('type') == 'turn.completed':
+                    turn_failed = False
                 item = message.get('item', {})
                 if message.get('type') == 'item.completed':
                     key = item.get('id')
@@ -77,6 +83,12 @@ def main():
                     if item.get('type') == 'agent_message':
                         print(item.get('text', ''), flush=True)
             code = process.wait()
+            if turn_failed:
+                code = code or 1
+            if code != 0:
+                end_reason = 'codex_turn_failed' if turn_failed else 'codex_process_failed'
+            else:
+                end_reason = 'completed_after_retry' if saw_error else 'completed'
         finally:
             if process is not None and process.poll() is None:
                 process.terminate()
