@@ -16,7 +16,7 @@ struct inode {
 	int valid; // inode has been read from disk?
 	short type; // copy of disk inode
 	uint size;
-	uint addrs[NDIRECT + 1];
+	uint addrs[NDIRECT + 2];
 	// LAB4: You may need to add link count here
 };
 

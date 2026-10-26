@@ -5,6 +5,11 @@
 #include "timer.h"
 #include "trap.h"
 #include "virtio.h"
+#include "io.h"
+#include "virtio_gpu.h"
+#include "virtio_input.h"
+
+int dev_non_blocking_access;
 
 void clean_bss()
 {
@@ -21,13 +26,18 @@ void main()
 	kinit();
 	kvm_init();
 	trap_init();
+	console_init();
 	plicinit();
 	virtio_disk_init();
 	binit();
 	fsinit();
+	virtio_gpu_init();
+	virtio_input_init();
 	timer_init();
 	load_init_app();
 	infof("start scheduler!");
 	show_all_files();
+	dev_non_blocking_access = 1;
+	printf("uCore chapter 9: interrupt-driven I/O ready\n");
 	scheduler();
 }

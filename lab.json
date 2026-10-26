@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "chapter": 9,
+  "title": "I/O 设备管理：UART、virtio-blk 与 virtio-gpu",
+  "student_branch": "ch9-api",
+  "reference_branch": "ch9-api-impl",
+  "allowed_code_files": ["os/uart.c", "os/virtio_blk.c", "os/virtio_gpu.c"],
+  "functions": [
+    { "file": "os/uart.c", "name": "uart_read" },
+    { "file": "os/uart.c", "name": "uart_handle_irq" },
+    { "file": "os/virtio_blk.c", "name": "virtio_block_read_block" },
+    { "file": "os/virtio_blk.c", "name": "virtio_block_write_block" },
+    { "file": "os/virtio_blk.c", "name": "virtio_block_handle_irq" },
+    { "file": "os/virtio_gpu.c", "name": "virtio_gpu_init" },
+    { "file": "os/virtio_gpu.c", "name": "virtio_gpu_get_framebuffer" },
+    { "file": "os/virtio_gpu.c", "name": "virtio_gpu_flush" }
+  ],
+  "test": { "base": 1 }
+}

@@ -42,6 +42,7 @@ struct thread {
 	struct trapframe *trapframe; // data page for trampoline.S
 	struct context context; // swtch() here to run process
 	uint64 exit_code;
+	int exec_rebuild; /* reserve the current slot while exec blocks on image I/O */
 };
 
 enum procstate { P_UNUSED, P_USED, ZOMBIE };

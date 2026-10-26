@@ -11,7 +11,7 @@
 #define ROOTDEV 1 // device number of file system root disk
 #define MAXOPBLOCKS 10 // max # of blocks any FS op writes
 #define NBUF (MAXOPBLOCKS * 3) // size of disk block cache
-#define FSSIZE 1000 // size of file system in blocks
+#define FSSIZE 32768 // chapter 9: room for the 1 MiB write workload
 #define MAXPATH 128 // maximum file path name
 
 #define ROOTINO 1 // root i-number
@@ -33,9 +33,9 @@ struct superblock {
 
 #define FSMAGIC 0x10203040
 
-#define NDIRECT 12
+#define NDIRECT 11
 #define NINDIRECT (BSIZE / sizeof(uint))
-#define MAXFILE (NDIRECT + NINDIRECT)
+#define MAXFILE (NDIRECT + NINDIRECT + NINDIRECT * NINDIRECT)
 
 // File type
 #define T_DIR 1 // Directory
@@ -49,7 +49,7 @@ struct dinode {
 	//       or you can just regard a pad as link count.
 	//       But keep in mind that you'd better keep sizeof(dinode) unchanged
 	uint size; // Size of file (bytes)
-	uint addrs[NDIRECT + 1]; // Data block addresses
+	uint addrs[NDIRECT + 2]; // direct, single indirect, double indirect
 };
 
 // Inodes per block.
@@ -76,6 +76,8 @@ struct dirent {
 struct inode;
 
 void fsinit();
+void fs_enter(void);
+void fs_leave(void);
 int dirlink(struct inode *, char *, uint);
 struct inode *dirlookup(struct inode *, char *, uint *);
 struct inode *ialloc(uint, short);

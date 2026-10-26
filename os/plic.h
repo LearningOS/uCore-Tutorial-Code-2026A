@@ -6,8 +6,14 @@
 #define UART0_IRQ 10
 
 // virtio mmio interface
-#define VIRTIO0 0x10001000
-#define VIRTIO0_IRQ 1
+#define VIRTIO0 0x10008000
+#define VIRTIO0_IRQ 8
+#define VIRTIO_GPU 0x10007000
+#define VIRTIO_GPU_IRQ 7
+#define VIRTIO_KEYBOARD 0x10005000
+#define VIRTIO_KEYBOARD_IRQ 5
+#define VIRTIO_MOUSE 0x10006000
+#define VIRTIO_MOUSE_IRQ 6
 
 // qemu puts platform-level interrupt controller (PLIC) here.
 #define PLIC 0x0c000000L

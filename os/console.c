@@ -1,17 +1,17 @@
 #include "console.h"
-#include "sbi.h"
+#include "uart.h"
 
 void consputc(int c)
 {
-	console_putchar(c);
+	uart_write(c);
 }
 
 void console_init()
 {
-	// DO NOTHING
+	uart_init();
 }
 
 int consgetc()
 {
-	return console_getchar();
+	return uart_read();
 }

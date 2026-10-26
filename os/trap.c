@@ -6,6 +6,10 @@
 #include "timer.h"
 #include "virtio.h"
 #include "proc.h"
+#include "virtio_gpu.h"
+#include "virtio_input.h"
+#include "uart.h"
+#include "virtio_blk.h"
 
 extern char trampoline[], uservec[];
 extern char userret[], kernelvec[];
@@ -51,9 +55,15 @@ void devintr(uint64 cause)
 	case SupervisorExternal:
 		irq = plic_claim();
 		if (irq == UART0_IRQ) {
-			// do nothing
+			uart_handle_irq();
 		} else if (irq == VIRTIO0_IRQ) {
-			virtio_disk_intr();
+			virtio_block_handle_irq();
+		} else if (irq == VIRTIO_GPU_IRQ) {
+			virtio_gpu_handle_irq();
+		} else if (irq == VIRTIO_KEYBOARD_IRQ) {
+			virtio_input_handle_irq(0);
+		} else if (irq == VIRTIO_MOUSE_IRQ) {
+			virtio_input_handle_irq(1);
 		} else if (irq) {
 			infof("unexpected interrupt irq=%d\n", irq);
 		}
@@ -85,6 +95,8 @@ void usertrap()
 		switch (cause) {
 		case UserEnvCall:
 			trapframe->epc += 4;
+			/* sepc is saved; device IRQs may now wake blocked I/O. */
+			intr_on();
 			syscall();
 			break;
 		case StoreMisaligned:
@@ -115,6 +127,8 @@ void usertrap()
 //
 void usertrapret()
 {
+	/* uservec is only valid while executing under the user page table. */
+	intr_off();
 	set_usertrap();
 	struct trapframe *trapframe = curr_thread()->trapframe;
 	trapframe->kernel_satp = r_satp(); // kernel page table

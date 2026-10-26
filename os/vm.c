@@ -2,6 +2,7 @@
 #include "defs.h"
 #include "plic.h"
 #include "riscv.h"
+#include "gui.h"
 
 pagetable_t kernel_pagetable;
 
@@ -15,7 +16,7 @@ pagetable_t kvmmake()
 	kpgtbl = (pagetable_t)kalloc();
 	memset(kpgtbl, 0, PGSIZE);
 	// virtio mmio disk interface
-	kvmmap(kpgtbl, VIRTIO0, VIRTIO0, PGSIZE, PTE_R | PTE_W);
+	kvmmap(kpgtbl, UART0, UART0, 0x9000, PTE_R | PTE_W);
 	// PLIC
 	kvmmap(kpgtbl, PLIC, PLIC, 0x400000, PTE_R | PTE_W);
 	// map kernel text executable and read-only.
@@ -220,6 +221,7 @@ void freewalk(pagetable_t pagetable)
  */
 void uvmfree(pagetable_t pagetable, uint64 max_page)
 {
+	gui_unmap(pagetable);
 	if (max_page > 0)
 		uvmunmap(pagetable, 0, max_page, 1);
 	freewalk(pagetable);
@@ -250,6 +252,7 @@ int uvmcopy(pagetable_t old, pagetable_t new, uint64 max_page)
 			goto err;
 		}
 	}
+	gui_clone(old, new);
 	return 0;
 
 err:

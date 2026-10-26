@@ -11,7 +11,7 @@
 #define ROOTDEV 1 // device number of file system root disk
 #define MAXOPBLOCKS 10 // max # of blocks any FS op writes
 #define NBUF (MAXOPBLOCKS * 3) // size of disk block cache
-#define FSSIZE 1000 // size of file system in blocks
+#define FSSIZE 32768
 #define MAXPATH 128 // maximum file path name
 
 #define ROOTINO 1 // root i-number
@@ -33,9 +33,9 @@ struct superblock {
 
 #define FSMAGIC 0x10203040
 
-#define NDIRECT 12
+#define NDIRECT 11
 #define NINDIRECT (BSIZE / sizeof(uint))
-#define MAXFILE (NDIRECT + NINDIRECT)
+#define MAXFILE (NDIRECT + NINDIRECT + NINDIRECT * NINDIRECT)
 
 // File type
 #define T_DIR 1 // Directory
@@ -47,7 +47,7 @@ struct dinode {
 	short type; // File type
 	short pad[3];
 	uint size; // Size of file (bytes)
-	uint addrs[NDIRECT + 1]; // Data block addresses
+	uint addrs[NDIRECT + 2]; // direct, single indirect, double indirect
 };
 
 // Inodes per block.

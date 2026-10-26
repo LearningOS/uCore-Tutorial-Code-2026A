@@ -6,15 +6,22 @@
 #include "syscall_ids.h"
 #include "timer.h"
 #include "trap.h"
+#include "gui.h"
+#include "virtio_gpu.h"
+#include "virtio_input.h"
+#include "uart.h"
 
 uint64 console_write(uint64 va, uint64 len)
 {
 	struct proc *p = curr_proc();
 	char str[MAX_STR_LEN];
-	int size = copyinstr(p->pagetable, str, va, MIN(len, MAX_STR_LEN));
-	tracef("write size = %d", size);
-	for (int i = 0; i < size; ++i) {
-		console_putchar(str[i]);
+	for (uint64 off = 0; off < len;) {
+		uint64 size = MIN(len - off, sizeof(str));
+		if (copyin(p->pagetable, str, va + off, size) < 0)
+			return -1;
+		for (uint64 i = 0; i < size; ++i)
+			consputc(str[i]);
+		off += size;
 	}
 	return len;
 }
@@ -22,19 +29,19 @@ uint64 console_write(uint64 va, uint64 len)
 uint64 console_read(uint64 va, uint64 len)
 {
 	struct proc *p = curr_proc();
-	char str[MAX_STR_LEN];
-	tracef("read size = %d", len);
-	for (int i = 0; i < len; ++i) {
-		int c = consgetc();
-		str[i] = c;
+	/* The supplied stdin contract reads one byte, as in the chapter's shell. */
+	if (len == 0)
+		return 0;
+	char ch = consgetc();
+	if (copyout(p->pagetable, va, &ch, 1) < 0) {
+		return -1;
 	}
-	copyout(p->pagetable, va, str, len);
-	return len;
+	return 1;
 }
 
 uint64 sys_write(int fd, uint64 va, uint64 len)
 {
-	if (fd < 0 || fd > FD_BUFFER_SIZE)
+	if (fd < 0 || fd >= FD_BUFFER_SIZE)
 		return -1;
 	struct proc *p = curr_proc();
 	struct file *f = p->files[fd];
@@ -56,7 +63,7 @@ uint64 sys_write(int fd, uint64 va, uint64 len)
 
 uint64 sys_read(int fd, uint64 va, uint64 len)
 {
-	if (fd < 0 || fd > FD_BUFFER_SIZE)
+	if (fd < 0 || fd >= FD_BUFFER_SIZE)
 		return -1;
 	struct proc *p = curr_proc();
 	struct file *f = p->files[fd];
@@ -152,11 +159,10 @@ uint64 sys_pipe(uint64 fdarray)
 	struct proc *p = curr_proc();
 	uint64 fd0, fd1;
 	struct file *f0, *f1;
-	if (f0 < 0 || f1 < 0) {
-		return -1;
-	}
 	f0 = filealloc();
 	f1 = filealloc();
+	if (!f0 || !f1)
+		return -1;
 	if (pipealloc(f0, f1) < 0)
 		goto err0;
 	fd0 = fdalloc(f0);
@@ -189,7 +195,7 @@ uint64 sys_openat(uint64 va, uint64 omode, uint64 _flags)
 
 uint64 sys_close(int fd)
 {
-	if (fd < 0 || fd > FD_BUFFER_SIZE)
+	if (fd < 0 || fd >= FD_BUFFER_SIZE)
 		return -1;
 	struct proc *p = curr_proc();
 	struct file *f = p->files[fd];
@@ -368,14 +374,36 @@ extern char trap_page[];
 void syscall()
 {
 	struct trapframe *trapframe = curr_thread()->trapframe;
-	int id = trapframe->a7, ret;
+	int id = trapframe->a7;
+	uint64 ret;
 	uint64 args[6] = { trapframe->a0, trapframe->a1, trapframe->a2,
 			   trapframe->a3, trapframe->a4, trapframe->a5 };
+	int fs_guard = id == SYS_openat || id == SYS_execve;
+	if ((id == SYS_read || id == SYS_write || id == SYS_close) &&
+	    args[0] < FD_BUFFER_SIZE && curr_proc()->files[args[0]] &&
+	    curr_proc()->files[args[0]]->type == FD_INODE)
+		fs_guard = 1;
+	if (fs_guard)
+		fs_enter();
 	if (id != SYS_write && id != SYS_read && id != SYS_sched_yield) {
 		debugf("syscall %d args = [%x, %x, %x, %x, %x, %x]", id,
 		       args[0], args[1], args[2], args[3], args[4], args[5]);
 	}
 	switch (id) {
+	case 2000:
+		ret = gui_framebuffer(curr_proc()->pagetable);
+		break;
+	case 2001:
+		virtio_gpu_flush();
+		ret = 0;
+		break;
+	case 3000:
+		ret = !virtio_input_is_empty(0) ? virtio_input_read_event(0) :
+		      !virtio_input_is_empty(1) ? virtio_input_read_event(1) : 0;
+		break;
+	case 3001:
+		ret = !uart_buffer_empty();
+		break;
 	case SYS_write:
 		ret = sys_write(args[0], args[1], args[2]);
 		break;
@@ -459,6 +487,8 @@ void syscall()
 		ret = -1;
 		errorf("unknown syscall %d", id);
 	}
+	if (fs_guard)
+		fs_leave();
 	curr_thread()->trapframe->a0 = ret;
 	if (id != SYS_write && id != SYS_read && id != SYS_sched_yield) {
 		debugf("syscall %d ret %d", id, ret);

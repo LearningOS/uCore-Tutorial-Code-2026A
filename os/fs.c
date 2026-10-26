@@ -16,9 +16,41 @@
 #include "proc.h"
 #include "riscv.h"
 #include "types.h"
+#include "io.h"
 // there should be one superblock per disk device, but we run with
 // only one device
 struct superblock sb;
+/* The supplied filesystem predates blocking device I/O. Serialize whole
+ * operations with a sleepable lock, while leaving device IRQs enabled. */
+static int fs_busy;
+static struct io_cond fs_wait;
+
+void fs_enter(void)
+{
+	if (!dev_non_blocking_access)
+		return;
+	for (;;) {
+		irq_state_t state = io_irq_save();
+		if (!fs_busy) {
+			fs_busy = 1;
+			io_irq_restore(state);
+			return;
+		}
+		io_wait_no_sched(&fs_wait);
+		io_irq_restore(state);
+		sched();
+	}
+}
+
+void fs_leave(void)
+{
+	if (!dev_non_blocking_access)
+		return;
+	irq_state_t state = io_irq_save();
+	fs_busy = 0;
+	io_signal(&fs_wait);
+	io_irq_restore(state);
+}
 
 // Read the super block.
 static void readsb(int dev, struct superblock *sb)
@@ -32,6 +64,7 @@ static void readsb(int dev, struct superblock *sb)
 // Init fs
 void fsinit()
 {
+	io_cond_init(&fs_wait);
 	int dev = ROOTDEV;
 	readsb(dev, &sb);
 	if (sb.magic != FSMAGIC) {
@@ -253,6 +286,27 @@ static uint bmap(struct inode *ip, uint bn)
 		return addr;
 	}
 
+	bn -= NINDIRECT;
+	if (bn < NINDIRECT * NINDIRECT) {
+		if ((addr = ip->addrs[NDIRECT + 1]) == 0)
+			ip->addrs[NDIRECT + 1] = addr = balloc(ip->dev);
+		bp = bread(ip->dev, addr);
+		a = (uint *)bp->data;
+		uint outer = bn / NINDIRECT, inner = bn % NINDIRECT;
+		if ((addr = a[outer]) == 0) {
+			a[outer] = addr = balloc(ip->dev);
+			bwrite(bp);
+		}
+		brelse(bp);
+		bp = bread(ip->dev, addr);
+		a = (uint *)bp->data;
+		if ((addr = a[inner]) == 0) {
+			a[inner] = addr = balloc(ip->dev);
+			bwrite(bp);
+		}
+		brelse(bp);
+		return addr;
+	}
 	panic("bmap: out of range");
 	return 0;
 }
@@ -283,6 +337,24 @@ void itrunc(struct inode *ip)
 		ip->addrs[NDIRECT] = 0;
 	}
 
+	if (ip->addrs[NDIRECT + 1]) {
+		struct buf *outer = bread(ip->dev, ip->addrs[NDIRECT + 1]);
+		uint *links = (uint *)outer->data;
+		for (i = 0; i < NINDIRECT; ++i) {
+			if (!links[i])
+				continue;
+			bp = bread(ip->dev, links[i]);
+			a = (uint *)bp->data;
+			for (j = 0; j < NINDIRECT; ++j)
+				if (a[j])
+					bfree(ip->dev, a[j]);
+			brelse(bp);
+			bfree(ip->dev, links[i]);
+		}
+		brelse(outer);
+		bfree(ip->dev, ip->addrs[NDIRECT + 1]);
+		ip->addrs[NDIRECT + 1] = 0;
+	}
 	ip->size = 0;
 	iupdate(ip);
 }

@@ -1,144 +1,62 @@
-.PHONY: clean build user run debug test .FORCE
-all: build
-
-K = os
-U = user
-F = nfs
-
-TOOLPREFIX = riscv64-unknown-elf-
-CC = $(TOOLPREFIX)gcc
-AS = $(TOOLPREFIX)gcc
-LD = $(TOOLPREFIX)ld
-OBJCOPY = $(TOOLPREFIX)objcopy
-OBJDUMP = $(TOOLPREFIX)objdump
-PY = python3
-GDB = $(TOOLPREFIX)gdb
-CP = cp
-BUILDDIR = build
-C_SRCS = $(wildcard $K/*.c)
-AS_SRCS = $(wildcard $K/*.S)
-C_OBJS = $(addprefix $(BUILDDIR)/, $(addsuffix .o, $(basename $(C_SRCS))))
-AS_OBJS = $(addprefix $(BUILDDIR)/, $(addsuffix .o, $(basename $(AS_SRCS))))
-OBJS = $(C_OBJS) $(AS_OBJS)
-
-HEADER_DEP = $(addsuffix .d, $(basename $(C_OBJS)))
-
-ifeq (,$(findstring initproc.o,$(OBJS)))
-	AS_OBJS += $(BUILDDIR)/$K/initproc.o
-endif
-
+.DEFAULT_GOAL := build
+K := os
+U := chapter9-user
+F := nfs
+TOOLPREFIX ?= riscv64-unknown-elf-
+CC := $(TOOLPREFIX)gcc
+LD := $(TOOLPREFIX)ld
+OBJDUMP := $(TOOLPREFIX)objdump
+PY ?= python3
+QEMU ?= qemu-system-riscv64
+GDB ?= gdb-multiarch
+GDB_PORT ?= 15234
 INIT_PROC ?= usershell
-
-$(K)/initproc.o: $K/initproc.S
-$(K)/initproc.S: scripts/initproc.py .FORCE
-	@$(PY) scripts/initproc.py $(INIT_PROC)
-
-CFLAGS = -Wall -Werror -O -fno-omit-frame-pointer -ggdb
-CFLAGS += -MD
-CFLAGS += -mcmodel=medany
-CFLAGS += -ffreestanding -fno-common -nostdlib -mno-relax
-CFLAGS += -I$K
-CFLAGS += $(shell $(CC) -fno-stack-protector -E -x c /dev/null >/dev/null 2>&1 && echo -fno-stack-protector)
-
+GUI ?= off
 LOG ?= error
-
-ifeq ($(LOG), error)
-CFLAGS += -D LOG_LEVEL_ERROR
-else ifeq ($(LOG), warn)
-CFLAGS += -D LOG_LEVEL_WARN
-else ifeq ($(LOG), info)
-CFLAGS += -D LOG_LEVEL_INFO
-else ifeq ($(LOG), debug)
-CFLAGS += -D LOG_LEVEL_DEBUG
-else ifeq ($(LOG), trace)
-CFLAGS += -D LOG_LEVEL_TRACE
+MODE ?= release
+CFLAGS := -Wall -Werror -O1 -g -fno-omit-frame-pointer -ffreestanding -fno-builtin -fno-common -fno-stack-protector -fno-pie -nostdlib -mcmodel=medany -mno-relax -msmall-data-limit=0 -Ios -DLOG_LEVEL_$(shell echo $(LOG) | tr a-z A-Z)
+ifeq ($(MODE),debug)
+CFLAGS := $(filter-out -O1,$(CFLAGS)) -O0
 endif
-
-# Disable PIE when possible (for Ubuntu 16.10 toolchain)
-ifneq ($(shell $(CC) -dumpspecs 2>/dev/null | grep -e '[^f]no-pie'),)
-CFLAGS += -fno-pie -no-pie
-endif
-ifneq ($(shell $(CC) -dumpspecs 2>/dev/null | grep -e '[^f]nopie'),)
-CFLAGS += -fno-pie -nopie
-endif
-
-# empty target
-.FORCE:
-
-LDFLAGS = -z max-page-size=4096
-
-$(AS_OBJS): $(BUILDDIR)/$K/%.o : $K/%.S
-	@mkdir -p $(@D)
-	$(CC) $(CFLAGS) -c $< -o $@
-
-$(C_OBJS): $(BUILDDIR)/$K/%.o : $K/%.c  $(BUILDDIR)/$K/%.d
-	@mkdir -p $(@D)
-	$(CC) $(CFLAGS) -c $< -o $@
-
-$(HEADER_DEP): $(BUILDDIR)/$K/%.d : $K/%.c
-	@mkdir -p $(@D)
-	@set -e; rm -f $@; $(CC) -MM $< $(INCLUDEFLAGS) > $@.$$$$; \
-        sed 's,\($*\)\.o[ :]*,\1.o $@ : ,g' < $@.$$$$ > $@; \
-        rm -f $@.$$$$
-
-INIT_PROC ?= usershell
-
-build: build/kernel
-
-build/kernel: $(OBJS) os/kernel.ld
-	$(LD) $(LDFLAGS) -T os/kernel.ld -o $(BUILDDIR)/kernel $(OBJS)
-	$(OBJDUMP) -S $(BUILDDIR)/kernel > $(BUILDDIR)/kernel.asm
-	$(OBJDUMP) -t $(BUILDDIR)/kernel | sed '1,/SYMBOL TABLE/d; s/ .* / /; /^$$/d' > $(BUILDDIR)/kernel.sym
-	@echo 'Build kernel done'
-
-clean:
-	rm -rf $(BUILDDIR) os/initproc.S
-	rm $(F)/*.img
-
-# BOARD
-BOARD		?= qemu
-SBI			?= rustsbi
-BOOTLOADER	:= ./bootloader/rustsbi-qemu.bin
-
-QEMU = qemu-system-riscv64
-QEMUOPTS = \
-	-nographic \
-	-machine virt \
-	-bios $(BOOTLOADER) \
-	-kernel build/kernel	\
-	-drive file=$(F)/fs-copy.img,if=none,format=raw,id=x0 \
-    -device virtio-blk-device,drive=x0,bus=virtio-mmio-bus.0
-
-$(F)/fs.img:
-	make -C $(F)
-
-$(F)/fs-copy.img: $(F)/fs.img
-	@$(CP) $< $@
-
-run: build/kernel $(F)/fs-copy.img
-	$(QEMU) $(QEMUOPTS)
-
-# QEMU's gdb stub command line changed in 0.11
-QEMUGDB = $(shell if $(QEMU) -help | grep -q '^-gdb'; \
-	then echo "-gdb tcp::15234"; \
-	else echo "-s -p 15234"; fi)
-
-debug: build/kernel .gdbinit
-	@tmux new-session -d \
-		$(QEMU) $(QEMUOPTS) -S $(QEMUGDB) && \
-		tmux split-window -h "$(GDB) -ex 'target remote localhost:15234'" && \
-		tmux -2 attach-session -d
-
-gdbserver: build/kernel
-	$(QEMU) $(QEMUOPTS) -S $(QEMUGDB)
-
-gdbclient:
-	$(GDB) -ex "target remote localhost:15234"
-
-CHAPTER ?= $(shell git rev-parse --abbrev-ref HEAD | grep -oP 'ch\K[0-9]')
-
+C_SRCS := $(wildcard os/*.c)
+AS_SRCS := $(filter-out os/initproc.S,$(wildcard os/*.S)) os/initproc.S
+OBJS := $(patsubst %.c,build/%.o,$(C_SRCS)) $(patsubst %.S,build/%.o,$(AS_SRCS))
+.PHONY: build user fs-image run clean gdbserver gdbclient test-ch9 FORCE
+build: build/kernel fs-image
 user:
-	make -C user CHAPTER=$(CHAPTER) BASE=$(BASE)
-
-test: user run
-
+	$(MAKE) -C $(U) TOOLPREFIX=$(TOOLPREFIX)
+fs-image: user nfs/fs
+	./nfs/fs nfs/fs.img $(sort $(wildcard $(U)/target/bin/*))
+nfs/fs: nfs/fs.c nfs/fs.h nfs/types.h
+	cc -Wall -Werror -o $@ nfs/fs.c
+os/initproc.S: FORCE
+	$(PY) scripts/initproc.py $(INIT_PROC)
+build/%.o: %.c
+	@mkdir -p $(@D)
+	$(CC) $(CFLAGS) -MMD -MP -c $< -o $@
+build/%.o: %.S
+	@mkdir -p $(@D)
+	$(CC) $(CFLAGS) -MMD -MP -c $< -o $@
+build/kernel: $(OBJS) os/kernel.ld
+	$(LD) -z max-page-size=4096 -T os/kernel.ld -o $@ $(OBJS)
+	$(OBJDUMP) -t $@ > build/kernel.sym
+	@echo 'Build kernel done'
+ifeq ($(GUI),on)
+DISPLAY_OPTS :=
+else
+DISPLAY_OPTS := -display none
+endif
+QEMUOPTS = -machine virt -m 128M -smp 1 -bios bootloader/rustsbi-qemu.bin -kernel build/kernel -serial stdio -monitor none $(DISPLAY_OPTS) -global virtio-mmio.force-legacy=false -drive file=nfs/fs-copy.img,if=none,format=raw,id=x0 -device virtio-blk-device,drive=x0,bus=virtio-mmio-bus.7 -device virtio-gpu-device,bus=virtio-mmio-bus.6,xres=1280,yres=800 -device virtio-keyboard-device,bus=virtio-mmio-bus.4 -device virtio-mouse-device,bus=virtio-mmio-bus.5
+run: build
+	cp nfs/fs.img nfs/fs-copy.img
+	$(QEMU) $(QEMUOPTS)
+gdbserver: build
+	cp nfs/fs.img nfs/fs-copy.img
+	$(QEMU) $(QEMUOPTS) -S -gdb tcp::$(GDB_PORT)
+gdbclient:
+	$(GDB) build/kernel -ex 'set architecture riscv:rv64' -ex 'target remote localhost:$(GDB_PORT)'
+test-ch9: build
+	$(PY) tools/run_ch9.py --qemu $(QEMU)
+clean:
+	rm -rf build chapter9-user/target nfs/fs nfs/*.img os/initproc.S
+-include $(OBJS:.o=.d)

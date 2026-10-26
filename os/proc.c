@@ -4,6 +4,8 @@
 #include "trap.h"
 #include "vm.h"
 #include "queue.h"
+#include "io.h"
+#include "gui.h"
 
 struct proc pool[NPROC];
 __attribute__((aligned(16))) char kstack[NPROC][NTHREAD][KSTACK_SIZE];
@@ -76,7 +78,7 @@ int alloctid(const struct proc *process)
 // get task by unique task id
 struct thread *id_to_task(int index)
 {
-	if (index < 0) {
+	if (index < 0 || index >= NPROC * NTHREAD) {
 		return NULL;
 	}
 	int pool_id = index / NTHREAD;
@@ -95,7 +97,9 @@ int task_to_id(struct thread *t)
 
 struct thread *fetch_task()
 {
+	irq_state_t state = io_irq_save();
 	int index = pop_queue(&task_queue);
+	io_irq_restore(state);
 	struct thread *t = id_to_task(index);
 	if (t == NULL) {
 		debugf("No task to fetch\n");
@@ -112,7 +116,9 @@ void add_task(struct thread *t)
 {
 	int task_id = task_to_id(t);
 	int pid = t->process->pid;
+	irq_state_t state = io_irq_save();
 	push_queue(&task_queue, task_id);
+	io_irq_restore(state);
 	tracef("add index %d(pid=%d, tid=%d, addr=%p) to task queue", task_id,
 	       pid, t->tid, (uint64)t);
 }
@@ -162,7 +168,8 @@ int allocthread(struct proc *p, uint64 entry, int alloc_user_res)
 	struct thread *t;
 	for (tid = 0; tid < NTHREAD; ++tid) {
 		t = &p->threads[tid];
-		if (t->state == T_UNUSED) {
+		if (t->state == T_UNUSED ||
+		    (t == curr_thread() && t->exec_rebuild)) {
 			goto found;
 		}
 	}
@@ -173,6 +180,7 @@ found:
 	t->state = T_USED;
 	t->process = p;
 	t->exit_code = 0;
+	t->exec_rebuild = 0;
 	// kernel stack
 	t->kstack = (uint64)kstack[p - pool][tid];
 	// don't clear kstack now for exec()
@@ -224,47 +232,62 @@ int init_stdio(struct proc *p)
 //  - swtch to start running that process.
 //  - eventually that process transfers control
 //    via swtch back to the scheduler.
+/* There can be no runnable thread while an I/O completion is pending. */
+static int live_threads(void)
+{
+	for (int p = 0; p < NPROC; ++p)
+		for (int tid = 0; tid < NTHREAD; ++tid) {
+			enum threadstate s = pool[p].threads[tid].state;
+			if (s == RUNNING || s == RUNNABLE || s == SLEEPING || s == T_USED)
+				return 1;
+		}
+	return 0;
+}
+
 void scheduler()
 {
-	struct thread *t;
 	for (;;) {
-		t = fetch_task();
-		if (t == NULL) {
-			panic("all app are over!\n");
-		}
-		// throw out freed threads
-		if (t->state != RUNNABLE) {
-			warnf("not RUNNABLE", t->process->pid, t->tid);
+		intr_off();
+		current_thread = &idle;
+		struct thread *t = fetch_task();
+		if (!t) {
+			if (!live_threads()) {
+				printf("all app are over!\n");
+				shutdown();
+			}
+			/* WFI observes locally enabled IRQs even with global SIE clear.
+			 * An IRQ cannot be consumed between the empty check and WFI. */
+			asm volatile("wfi" ::: "memory");
+			intr_on();
 			continue;
 		}
-		tracef("swtich to proc %d, thread %d", t->process->pid, t->tid);
+		if (t->state != RUNNABLE)
+			continue;
 		t->state = RUNNING;
 		current_thread = t;
 		swtch(&idle.context, &t->context);
 	}
 }
 
-// Switch to scheduler.  Must hold only p->lock
-// and have changed proc->state. Saves and restores
-// intena because intena is a property of this
-// kernel thread, not this CPU. It should
-// be proc->intena and proc->noff, but that would
-// break in the few places where a lock is held but
-// there's no process.
+/* The interrupt-enable state belongs to the suspended kernel continuation.
+ * No device critical section may remain held across this call. */
 void sched()
 {
+	irq_state_t state = io_irq_save();
 	struct thread *t = curr_thread();
 	if (t->state == RUNNING)
 		panic("sched running");
 	swtch(&t->context, &idle.context);
+	io_irq_restore(state);
 }
 
-// Give up the CPU for one scheduling round.
 void yield()
 {
+	irq_state_t state = io_irq_save();
 	current_thread->state = RUNNABLE;
 	add_task(current_thread);
 	sched();
+	io_irq_restore(state);
 }
 
 // Free a process's page table, and free the
@@ -299,9 +322,10 @@ void freeproc(struct proc *p)
 	p->pagetable = 0;
 	p->max_page = 0;
 	p->ustack_base = 0;
-	for (int i = 0; i > FD_BUFFER_SIZE; i++) {
+	for (int i = 0; i < FD_BUFFER_SIZE; i++) {
 		if (p->files[i] != NULL) {
 			fileclose(p->files[i]);
+			p->files[i] = NULL;
 		}
 	}
 	p->state = P_UNUSED;
@@ -395,7 +419,9 @@ int exec(char *path, char **argv)
 	// free current main thread's ustack and trapframe
 	struct thread *t = curr_thread();
 	freethread(t);
-	t->state = T_UNUSED;
+	t->state = RUNNING;
+	t->exec_rebuild = 1;
+	gui_unmap(p->pagetable);
 	uvmunmap(p->pagetable, 0, p->max_page, 1);
 	bin_loader(ip, p);
 	iput(ip);
