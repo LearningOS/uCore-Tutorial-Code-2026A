@@ -4,6 +4,8 @@
 
 阅读材料为[《rCore-Tutorial-Book-v3》第九章：I/O 设备管理](https://rcore-os.cn/rCore-Tutorial-Book-v3/chapter9/index.html)。本仓库的接口和代码使用 C 语言。
 
+先阅读[第九章教学正文](docs/chapter9.md)，理解设备访问、中断与线程等待，再进入下方的分析和独立实现任务。
+
 | 分支 | 用途 | 说明文档 |
 | --- | --- | --- |
 | `ch9` | 完整参考代码、静态分析与 GDB 动态跟踪 | [源码分析与动态跟踪](ucore-ch9-analyze.md) |
