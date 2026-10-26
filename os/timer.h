@@ -5,10 +5,12 @@
 
 #define TICKS_PER_SEC (100)
 // QEMU
-#define CPU_FREQ (12500000)
+extern uint64 timer_frequency;
+#define CPU_FREQ timer_frequency
 
 uint64 get_cycle();
 void timer_init();
+void timer_configure(uint64 device_tree);
 void set_next_timer();
 
 typedef struct {

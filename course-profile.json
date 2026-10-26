@@ -61,6 +61,14 @@
       "bootloader",
       "lab.json",
       "ucore-ch8-api.md"
+    ],
+    "ch9-api": [
+      "os/main.c",
+      "Makefile",
+      "bootloader",
+      "chapter9-user",
+      "lab.json",
+      "ucore-ch9-api.md"
     ]
   }
 }

@@ -212,13 +212,13 @@ uint ialloc(ushort type)
 void balloc(int used)
 {
 	uchar buf[BSIZE];
-	int i;
-	assert(used < BSIZE * 8);
-	bzero(buf, BSIZE);
-	for (i = 0; i < used; i++) {
-		buf[i / 8] = buf[i / 8] | (0x1 << (i % 8));
+	assert(used <= FSSIZE);
+	for (int base = 0; base < FSSIZE; base += BPB) {
+		bzero(buf, BSIZE);
+		for (int bit = 0; bit < BPB && base + bit < used; ++bit)
+			buf[bit / 8] |= 1U << (bit % 8);
+		wsect(xint(sb.bmapstart) + base / BPB, buf);
 	}
-	wsect(sb.bmapstart, buf);
 }
 
 #define min(a, b) ((a) < (b) ? (a) : (b))
@@ -230,6 +230,7 @@ void iappend(uint inum, void *xp, int n)
 	struct dinode din;
 	char buf[BSIZE];
 	uint indirect[NINDIRECT];
+	uint double_indirect[NINDIRECT];
 	uint x;
 
 	rinode(inum, &din);
@@ -242,7 +243,7 @@ void iappend(uint inum, void *xp, int n)
 				din.addrs[fbn] = xint(freeblock++);
 			}
 			x = xint(din.addrs[fbn]);
-		} else {
+		} else if (fbn < NDIRECT + NINDIRECT) {
 			if (xint(din.addrs[NDIRECT]) == 0) {
 				din.addrs[NDIRECT] = xint(freeblock++);
 			}
@@ -253,6 +254,22 @@ void iappend(uint inum, void *xp, int n)
 				      (char *)indirect);
 			}
 			x = xint(indirect[fbn - NDIRECT]);
+		} else {
+			uint relative = fbn - NDIRECT - NINDIRECT;
+			uint outer = relative / NINDIRECT, inner = relative % NINDIRECT;
+			if (!din.addrs[NDIRECT + 1])
+				din.addrs[NDIRECT + 1] = xint(freeblock++);
+			rsect(xint(din.addrs[NDIRECT + 1]), double_indirect);
+			if (!double_indirect[outer]) {
+				double_indirect[outer] = xint(freeblock++);
+				wsect(xint(din.addrs[NDIRECT + 1]), double_indirect);
+			}
+			rsect(xint(double_indirect[outer]), indirect);
+			if (!indirect[inner]) {
+				indirect[inner] = xint(freeblock++);
+				wsect(xint(double_indirect[outer]), indirect);
+			}
+			x = xint(indirect[inner]);
 		}
 		n1 = min(n, (fbn + 1) * BSIZE - off);
 		rsect(x, buf);

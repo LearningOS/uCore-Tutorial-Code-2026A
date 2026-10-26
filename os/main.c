@@ -18,9 +18,12 @@ void clean_bss()
 	memset(s_bss, 0, e_bss - s_bss);
 }
 
-void main()
+void main(uint64 hart_id, uint64 device_tree)
 {
 	clean_bss();
+	if (hart_id != 0)
+		panic("chapter 9 requires a single boot hart");
+	timer_configure(device_tree);
 	printf("hello world!\n");
 	proc_init();
 	kinit();
