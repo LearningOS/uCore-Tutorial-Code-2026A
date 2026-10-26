@@ -22,17 +22,16 @@ void io_irq_restore(irq_state_t state)
 void io_cond_init(struct io_cond *cond)
 {
 	init_queue(&cond->wait_queue, NELEM(cond->data), cond->data);
+	cond->completion_wait = 0;
 }
 
 void io_wait_no_sched(struct io_cond *cond)
 {
 	if (intr_get())
 		panic("I/O waiter registration must be protected");
-	struct thread *t = curr_thread();
-	if (!t || t->tid < 0)
-		panic("boot has no thread to block");
-	push_queue(&cond->wait_queue, task_to_id(t));
-	t->state = SLEEPING;
+	if (!cond->completion_wait)
+		task_cancel_checkpoint();
+	task_wait_no_sched(&cond->wait_queue, cond->completion_wait);
 }
 
 void io_signal(struct io_cond *cond)
@@ -42,8 +41,7 @@ void io_signal(struct io_cond *cond)
 	if (t) {
 		if (t->state != SLEEPING)
 			panic("I/O waiter is not sleeping");
-		t->state = RUNNABLE;
-		add_task(t);
+		task_wake(t);
 	}
 	io_irq_restore(state);
 }

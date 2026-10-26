@@ -373,6 +373,7 @@ extern char trap_page[];
 
 void syscall()
 {
+	task_syscall_enter();
 	struct trapframe *trapframe = curr_thread()->trapframe;
 	int id = trapframe->a7;
 	uint64 ret;
@@ -489,6 +490,7 @@ void syscall()
 	}
 	if (fs_guard)
 		fs_leave();
+	task_syscall_leave();
 	curr_thread()->trapframe->a0 = ret;
 	if (id != SYS_write && id != SYS_read && id != SYS_sched_yield) {
 		debugf("syscall %d ret %d", id, ret);

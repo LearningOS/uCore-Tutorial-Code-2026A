@@ -36,7 +36,7 @@ void uart_init(void)
 }
 
 /* Provided raw register operation; -1 means no byte is currently available. */
-static int uart_raw_read(void)
+static int __attribute__((unused)) uart_raw_read(void)
 {
 	if (UART_REG(LSR) & LSR_DATA_READY)
 		return UART_REG(RHR);

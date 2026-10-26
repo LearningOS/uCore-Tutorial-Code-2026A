@@ -12,6 +12,7 @@ void io_irq_restore(irq_state_t state);
 struct io_cond {
 	struct queue wait_queue;
 	int data[128];
+	int completion_wait; /* hardware completion cannot be canceled before DMA ends */
 };
 
 void io_cond_init(struct io_cond *cond);

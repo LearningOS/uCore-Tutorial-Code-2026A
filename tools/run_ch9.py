@@ -15,11 +15,11 @@ import time
 ROOT = Path(__file__).resolve().parents[1]
 
 class Machine:
-    def __init__(self, qemu, output):
+    def __init__(self, qemu, output, fs_image=None, extra_args=()):
         self.output = output.resolve()
         self.output.mkdir(parents=True, exist_ok=True)
         self.disk = self.output / 'disk.img'
-        shutil.copyfile(ROOT / 'nfs/fs.img', self.disk)
+        shutil.copyfile(fs_image or ROOT / 'nfs/fs.img', self.disk)
         self.qmp_path = self.output / 'qmp.sock'
         self.qmp_path.unlink(missing_ok=True)
         with socket.socket() as reservation:
@@ -36,6 +36,7 @@ class Machine:
                 '-device', 'virtio-gpu-device,bus=virtio-mmio-bus.6,xres=1280,yres=800',
                 '-device', 'virtio-keyboard-device,bus=virtio-mmio-bus.4',
                 '-device', 'virtio-mouse-device,bus=virtio-mmio-bus.5']
+        args.extend(extra_args)
         self.proc = subprocess.Popen(args, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                      stderr=subprocess.STDOUT, cwd=ROOT)
         self.selector = selectors.DefaultSelector()

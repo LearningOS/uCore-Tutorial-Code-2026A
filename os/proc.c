@@ -123,6 +123,88 @@ void add_task(struct thread *t)
 	       pid, t->tid, (uint64)t);
 }
 
+/* Remove every occurrence, preserving FIFO order for all other waiters.
+ * Called only with SIE clear; cancellation also removes ready-queue entries. */
+static void queue_remove_task(struct queue *q, struct thread *t)
+{
+	int id = task_to_id(t);
+	int count = q->empty ? 0 : (q->tail - q->front + q->size) % q->size;
+	if (!q->empty && count == 0)
+		count = q->size;
+	for (int i = 0; i < count; ++i) {
+		int item = pop_queue(q);
+		if (item != id)
+			push_queue(q, item);
+	}
+}
+
+void task_wait_no_sched(struct queue *queue, int completion)
+{
+	if (intr_get())
+		panic("wait registration requires interrupts disabled");
+	struct thread *t = curr_thread();
+	if (!t || t->tid < 0 || t->wait_queue)
+		panic("invalid wait registration");
+	push_queue(queue, task_to_id(t));
+	t->wait_queue = queue;
+	t->wait_completion = completion;
+	t->state = SLEEPING;
+}
+
+void task_wake(struct thread *t)
+{
+	t->wait_queue = NULL;
+	t->wait_completion = 0;
+	t->state = RUNNABLE;
+	add_task(t);
+}
+
+/* A canceled continuation retains its user mappings until every sibling has
+ * left the kernel. It is never allowed to execute another user instruction. */
+static void __attribute__((noreturn)) retire_current(void)
+{
+	io_irq_save();
+	struct thread *t = curr_thread();
+	struct proc *p = t->process;
+	if (t->wait_queue)
+		panic("retiring a registered waiter");
+	t->in_syscall = 0;
+	t->state = T_RETIRED;
+	queue_remove_task(&task_queue, t);
+	io_signal(&p->kernel_drain);
+	sched();
+	panic("retired continuation resumed");
+}
+
+void task_cancel_checkpoint(void)
+{
+	struct thread *t = curr_thread();
+	if (t && t->tid > 0 && t->process->dying)
+		retire_current();
+}
+
+void task_syscall_enter(void)
+{
+	task_cancel_checkpoint();
+	curr_thread()->in_syscall = 1;
+}
+
+void task_syscall_leave(void)
+{
+	curr_thread()->in_syscall = 0;
+	task_cancel_checkpoint();
+}
+
+static void require_single_thread(struct proc *p)
+{
+	int count = 0;
+	for (int i = 0; i < NTHREAD; ++i)
+		if (p->threads[i].state != T_UNUSED)
+			count++;
+	if (count != 1 || curr_thread()->tid != 0)
+		panic("fork/exec require one main thread, as in rCore ch9");
+}
+
 // Look in the process table for an UNUSED proc.
 // If found, initialize state required to run in the kernel.
 // If there are no free procs, or a memory allocation fails, return 0.
@@ -143,6 +225,8 @@ found:
 	p->max_page = 0;
 	p->parent = NULL;
 	p->exit_code = 0;
+	p->dying = 0;
+	io_cond_init(&p->kernel_drain);
 	p->pagetable = uvmcreate();
 	memset((void *)p->files, 0, sizeof(struct file *) * FD_BUFFER_SIZE);
 	p->next_mutex_id = 0;
@@ -180,7 +264,11 @@ found:
 	t->state = T_USED;
 	t->process = p;
 	t->exit_code = 0;
+	if (!t->exec_rebuild)
+		t->in_syscall = 0;
 	t->exec_rebuild = 0;
+	t->wait_queue = NULL;
+	t->wait_completion = 0;
 	// kernel stack
 	t->kstack = (uint64)kstack[p - pool][tid];
 	// don't clear kstack now for exec()
@@ -283,6 +371,7 @@ void sched()
 
 void yield()
 {
+	task_cancel_checkpoint();
 	irq_state_t state = io_irq_save();
 	current_thread->state = RUNNABLE;
 	add_task(current_thread);
@@ -316,6 +405,9 @@ void freeproc(struct proc *p)
 			freethread(t);
 		}
 		t->state = T_UNUSED;
+		t->in_syscall = 0;
+		t->wait_queue = NULL;
+		t->wait_completion = 0;
 	}
 	if (p->pagetable)
 		freepagetable(p->pagetable, p->max_page);
@@ -335,6 +427,7 @@ int fork()
 {
 	struct proc *np;
 	struct proc *p = curr_proc();
+	require_single_thread(p);
 	int i;
 	// Allocate process.
 	if ((np = allocproc()) == 0) {
@@ -412,6 +505,7 @@ int exec(char *path, char **argv)
 	infof("exec : %s\n", path);
 	struct inode *ip;
 	struct proc *p = curr_proc();
+	require_single_thread(p);
 	if ((ip = namei(path)) == 0) {
 		errorf("invalid file name %s\n", path);
 		return -1;
@@ -437,6 +531,7 @@ int wait(int pid, int *code)
 	struct thread *t = curr_thread();
 
 	for (;;) {
+		task_cancel_checkpoint();
 		// Scan through table looking for exited children.
 		havekids = 0;
 		for (np = pool; np < &pool[NPROC]; np++) {
@@ -463,33 +558,75 @@ int wait(int pid, int *code)
 	}
 }
 
-// Exit the current process.
+/* Stop user execution immediately. Kernel continuations that already own
+ * device requests must finish before their stacks and mappings can be freed. */
+static int sibling_kernel_active(struct proc *p)
+{
+	for (int i = 1; i < NTHREAD; ++i)
+		if (p->threads[i].in_syscall)
+			return 1;
+	return 0;
+}
+
 void exit(int code)
 {
 	struct proc *p = curr_proc();
 	struct thread *t = curr_thread();
-	t->exit_code = code;
-	t->state = EXITED;
-	int tid = t->tid;
-	debugf("thread exit with %d", code);
-	freethread(t);
-	if (tid == 0) {
-		p->exit_code = code;
-		freeproc(p);
-		debugf("proc exit");
-		if (p->parent != NULL) {
-			// Parent should `wait`
-			p->state = ZOMBIE;
-		}
-		// Set the `parent` of all children to NULL
-		struct proc *np;
-		for (np = pool; np < &pool[NPROC]; np++) {
-			if (np->parent == p) {
-				np->parent = NULL;
-			}
+	if (t->tid != 0) {
+		t->exit_code = code;
+		t->in_syscall = 0;
+		if (p->dying)
+			retire_current();
+		t->state = EXITED;
+		freethread(t);
+		sched();
+		panic("exited thread resumed");
+	}
+
+	irq_state_t state = io_irq_save();
+	p->dying = 1;
+	p->exit_code = code;
+	t->in_syscall = 0;
+	for (int i = 1; i < NTHREAD; ++i) {
+		struct thread *other = &p->threads[i];
+		if (other->state == T_UNUSED || other->state == EXITED ||
+		    other->state == T_RETIRED)
+			continue;
+		if (!other->in_syscall) {
+			queue_remove_task(&task_queue, other);
+			other->state = T_RETIRED;
+		} else if (other->wait_queue && !other->wait_completion) {
+			/* UART, FS-lock and synchronization waits have no outstanding
+			 * DMA. Wake them to reach a cancellation checkpoint. */
+			queue_remove_task(other->wait_queue, other);
+			task_wake(other);
 		}
 	}
+	io_irq_restore(state);
+
+	for (;;) {
+		state = io_irq_save();
+		if (!sibling_kernel_active(p)) {
+			io_irq_restore(state);
+			break;
+		}
+		io_wait_no_sched(&p->kernel_drain);
+		io_irq_restore(state);
+		sched();
+	}
+	/* No continuation or device request can now refer to this process's
+	 * stack/user pages. Retired slots remain unavailable until this point. */
+	t->exit_code = code;
+	t->state = EXITED;
+	freethread(t);
+	freeproc(p);
+	if (p->parent)
+		p->state = ZOMBIE;
+	for (struct proc *child = pool; child < &pool[NPROC]; ++child)
+		if (child->parent == p)
+			child->parent = NULL;
 	sched();
+	panic("exited process resumed");
 }
 
 int fdalloc(struct file *f)

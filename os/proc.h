@@ -4,6 +4,7 @@
 #include "riscv.h"
 #include "types.h"
 #include "sync.h"
+#include "io.h"
 
 #define NPROC (128)
 #define NTHREAD (16)
@@ -32,7 +33,7 @@ struct context {
 	uint64 s11;
 };
 
-enum threadstate { T_UNUSED, T_USED, SLEEPING, RUNNABLE, RUNNING, EXITED };
+enum threadstate { T_UNUSED, T_USED, SLEEPING, RUNNABLE, RUNNING, EXITED, T_RETIRED };
 struct thread {
 	enum threadstate state; // Thread state
 	int tid; // Thread ID
@@ -43,6 +44,9 @@ struct thread {
 	struct context context; // swtch() here to run process
 	uint64 exit_code;
 	int exec_rebuild; /* reserve the current slot while exec blocks on image I/O */
+	int in_syscall;
+	struct queue *wait_queue;
+	int wait_completion;
 };
 
 enum procstate { P_UNUSED, P_USED, ZOMBIE };
@@ -56,6 +60,8 @@ struct proc {
 	uint64 ustack_base; // Virtual address of user stack base
 	struct proc *parent; // Parent process
 	uint64 exit_code;
+	int dying;
+	struct io_cond kernel_drain;
 	//File descriptor table, using to record the files opened by the process
 	struct file *files[FD_BUFFER_SIZE];
 	struct thread threads[NTHREAD];
@@ -76,6 +82,11 @@ void exit(int);
 void proc_init();
 void scheduler() __attribute__((noreturn));
 void sched();
+void task_syscall_enter(void);
+void task_syscall_leave(void);
+void task_cancel_checkpoint(void);
+void task_wait_no_sched(struct queue *, int completion);
+void task_wake(struct thread *);
 void yield();
 int fork();
 int exec(char *, char **);

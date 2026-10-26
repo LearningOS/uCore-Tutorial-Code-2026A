@@ -25,8 +25,10 @@ void virtio_block_init(void)
 {
 	vmmio_init(&block.dev, VIRTIO_BLOCK_BASE, 2);
 	vq_init(&block.dev, &block.queue, 0);
-	for (int i = 0; i < VQ_NUM; ++i)
+	for (int i = 0; i < VQ_NUM; ++i) {
 		io_cond_init(&block.condvars[i]);
+		block.condvars[i].completion_wait = 1;
+	}
 	block.capacity = vmmio_read(&block.dev, 0x100) |
 		((uint64)vmmio_read(&block.dev, 0x104) << 32);
 	if (!block.capacity)
